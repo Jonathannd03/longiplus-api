@@ -1,0 +1,206 @@
+openapi: 3.1.0
+info:
+  title: LongiPlus API
+  version: 0.1.0
+  description: School management and mobile money fee collection for private schools in the DRC.
+
+servers:
+  - url: http://localhost:3000/v1
+    description: Local development
+
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Health check
+      description: Returns the operational status of the API, database and Redis.
+      tags:
+        - system
+      security: []
+      responses:
+        '200':
+          description: All systems operational
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: One or more dependencies are unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /auth/session:
+    post:
+      operationId: createSession
+      summary: Create authenticated session
+      description: >
+        Called once after the Keycloak PKCE redirect. Writes a login audit event and
+        returns the authenticated user with the list of schools they belong to.
+        Requires `Authorization: Bearer <token>` and `X-School-Id` headers.
+      tags:
+        - identity
+      parameters:
+        - $ref: '#/components/parameters/XSchoolId'
+      responses:
+        '201':
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSessionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /auth/me:
+    get:
+      operationId: getMe
+      summary: Get current authenticated user
+      description: >
+        Returns the authenticated user and their schools. Used by the SPA on reload
+        to rehydrate the auth store without triggering a new Keycloak redirect.
+        Requires `Authorization: Bearer <token>` and `X-School-Id` headers.
+      tags:
+        - identity
+      parameters:
+        - $ref: '#/components/parameters/XSchoolId'
+      responses:
+        '200':
+          description: Current user and schools
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSessionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Keycloak-issued access token (RS256, 5 min TTL)
+
+  parameters:
+    XSchoolId:
+      name: X-School-Id
+      in: header
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: UUID of the school the request is scoped to
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+    Forbidden:
+      description: No active membership for this school, or insufficient role
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+  schemas:
+    HealthStatus:
+      type: string
+      enum:
+        - ok
+        - error
+
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - database
+        - redis
+      properties:
+        status:
+          $ref: '#/components/schemas/HealthStatus'
+        database:
+          $ref: '#/components/schemas/HealthStatus'
+        redis:
+          $ref: '#/components/schemas/HealthStatus'
+
+    MemberRole:
+      type: string
+      enum:
+        - owner
+        - director
+        - bursar
+        - secretary
+        - teacher
+        - class_teacher
+        - longiplus_admin
+      description: Staff role within a school
+
+    SchoolRef:
+      type: object
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: C.S. Mwinda
+
+    AuthUser:
+      type: object
+      required:
+        - keycloakUserId
+        - email
+        - role
+        - schoolId
+      properties:
+        keycloakUserId:
+          type: string
+          description: Keycloak subject (`sub` claim)
+        email:
+          type: string
+          format: email
+        role:
+          $ref: '#/components/schemas/MemberRole'
+        schoolId:
+          type: string
+          format: uuid
+
+    AuthSessionResponse:
+      type: object
+      required:
+        - user
+        - schools
+      properties:
+        user:
+          $ref: '#/components/schemas/AuthUser'
+        schools:
+          type: array
+          items:
+            $ref: '#/components/schemas/SchoolRef'
+          description: All active schools this user belongs to (for the school-switcher)
+
+    ProblemDetail:
+      type: object
+      description: RFC 9457 problem details
+      properties:
+        statusCode:
+          type: integer
+        message:
+          type: string
+        error:
+          type: string

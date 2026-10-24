@@ -1,0 +1,15 @@
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { HealthModule } from './health/health.module.js';
+import { IdentityModule } from './modules/identity/identity.module.js';
+import { TenancyModule } from './modules/tenancy/tenancy.module.js';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    HealthModule,
+    TenancyModule,
+    IdentityModule,
+  ],
+})
+export class AppModule {}
