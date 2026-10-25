@@ -1,7 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { eq, and } from 'drizzle-orm';
 import { dbOwner } from '../../db/client.js';
+import type { TxDB } from '../../db/client.js';
 import { membership, school } from '../../db/schema.js';
+import { uuidv7 } from 'uuidv7';
+
+interface InviteMemberDto {
+  email: string;
+  role: 'director' | 'bursar' | 'secretary' | 'teacher' | 'class_teacher';
+  keycloakUserId?: string;
+}
 
 @Injectable()
 export class MembershipService {
@@ -37,5 +45,34 @@ export class MembershipService {
           eq(membership.status, 'active'),
         ),
       );
+  }
+
+  async findBySchool(schoolId: string) {
+    return dbOwner
+      .select({
+        id: membership.id,
+        keycloakUserId: membership.keycloakUserId,
+        email: membership.email,
+        role: membership.role,
+        status: membership.status,
+        createdAt: membership.createdAt,
+      })
+      .from(membership)
+      .where(eq(membership.schoolId, schoolId));
+  }
+
+  async invite(tx: TxDB, schoolId: string, dto: InviteMemberDto) {
+    const [row] = await tx
+      .insert(membership)
+      .values({
+        id: uuidv7(),
+        schoolId,
+        keycloakUserId: dto.keycloakUserId ?? '',
+        email: dto.email,
+        role: dto.role,
+        status: 'invited',
+      })
+      .returning();
+    return row!;
   }
 }

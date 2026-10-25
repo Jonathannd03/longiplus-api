@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
+import multipart from '@fastify/multipart';
 import { AppModule } from './app.module.js';
 import { JwtAuthGuard } from './modules/identity/jwt.guard.js';
 
@@ -10,6 +11,7 @@ async function bootstrap() {
     new FastifyAdapter({ logger: false }),
   );
 
+  await app.register(multipart, { limits: { fileSize: 5 * 1024 * 1024 } });
   app.setGlobalPrefix('v1');
   app.useGlobalGuards(app.get(JwtAuthGuard));
 
