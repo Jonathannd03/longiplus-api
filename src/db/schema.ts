@@ -1,4 +1,18 @@
-import { pgTable, pgEnum, uuid, text, boolean, bigint, jsonb, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  pgEnum,
+  uuid,
+  text,
+  boolean,
+  bigint,
+  integer,
+  date,
+  jsonb,
+  timestamp,
+  uniqueIndex,
+  varchar,
+  primaryKey,
+} from 'drizzle-orm/pg-core';
 import { uuidv7 } from 'uuidv7';
 
 // ─── Enums ───────────────────────────────────────────────────────────────────
@@ -30,6 +44,22 @@ export const payoutAccountStatusEnum = pgEnum('payout_account_status', [
   'suspended',
 ]);
 
+export const academicYearStatusEnum = pgEnum('academic_year_status', [
+  'draft',
+  'active',
+  'closed',
+]);
+
+export const gradingTypeEnum = pgEnum('grading_type', ['primary', 'secondary']);
+
+export const periodKindEnum = pgEnum('period_kind', ['period', 'exam']);
+
+export const periodStatusEnum = pgEnum('period_status', [
+  'open',
+  'closed',
+  'locked',
+]);
+
 // ─── Tables ──────────────────────────────────────────────────────────────────
 
 export const school = pgTable('school', {
@@ -37,6 +67,9 @@ export const school = pgTable('school', {
   name: text('name').notNull(),
   province: text('province').notNull(),
   city: text('city').notNull(),
+  address: text('address'),
+  contactPhone: text('contact_phone'),
+  logoRef: text('logo_ref'),
   settings: jsonb('settings'),
   cdfPerUsdRate: bigint('cdf_per_usd_rate', { mode: 'bigint' }),
   acceptCdfForUsd: boolean('accept_cdf_for_usd').notNull().default(false),
@@ -74,7 +107,7 @@ export const payoutAccount = pgTable('payout_account', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-// Append-only: no UPDATE/DELETE grant for kelasi_app role
+// Append-only: no UPDATE/DELETE grant for longiplus_app role
 export const auditEvent = pgTable('audit_event', {
   id: uuid('id').primaryKey().$defaultFn(() => uuidv7()),
   schoolId: uuid('school_id'),
@@ -96,3 +129,127 @@ export const outbox = pgTable('outbox', {
   sentAt: timestamp('sent_at', { withTimezone: true }),
 });
 
+// ─── M2: Academic structure ───────────────────────────────────────────────────
+
+export const academicYear = pgTable('academic_year', {
+  id: uuid('id').primaryKey().$defaultFn(() => uuidv7()),
+  schoolId: uuid('school_id')
+    .notNull()
+    .references(() => school.id),
+  label: text('label').notNull(),
+  startsOn: date('starts_on').notNull(),
+  endsOn: date('ends_on').notNull(),
+  gradingType: gradingTypeEnum('grading_type').notNull(),
+  status: academicYearStatusEnum('status').notNull().default('draft'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const period = pgTable('period', {
+  id: uuid('id').primaryKey().$defaultFn(() => uuidv7()),
+  schoolId: uuid('school_id')
+    .notNull()
+    .references(() => school.id),
+  yearId: uuid('year_id')
+    .notNull()
+    .references(() => academicYear.id),
+  kind: periodKindEnum('kind').notNull(),
+  sequence: integer('sequence').notNull(),
+  // which trimester (1–3) or semester (1–2) this belongs to
+  semesterOrTrimester: integer('semester_or_trimester'),
+  label: text('label').notNull(),
+  startsOn: date('starts_on'),
+  endsOn: date('ends_on'),
+  status: periodStatusEnum('status').notNull().default('open'),
+});
+
+export const classSection = pgTable('class_section', {
+  id: uuid('id').primaryKey().$defaultFn(() => uuidv7()),
+  schoolId: uuid('school_id')
+    .notNull()
+    .references(() => school.id),
+  yearId: uuid('year_id')
+    .notNull()
+    .references(() => academicYear.id),
+  level: text('level').notNull(),
+  option: text('option'),
+  name: text('name').notNull(),
+  classTeacherId: uuid('class_teacher_id').references(() => membership.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const sexEnum = pgEnum('sex', ['M', 'F']);
+
+export const enrollmentStatusEnum = pgEnum('enrollment_status', [
+  'active',
+  'transferred',
+  'withdrawn',
+]);
+
+export const subject = pgTable('subject', {
+  id: uuid('id').primaryKey().$defaultFn(() => uuidv7()),
+  schoolId: uuid('school_id')
+    .notNull()
+    .references(() => school.id),
+  classSectionId: uuid('class_section_id')
+    .notNull()
+    .references(() => classSection.id),
+  name: text('name').notNull(),
+  maxPeriod: integer('max_period').notNull().default(10),
+  maxExam: integer('max_exam'),
+  teacherId: uuid('teacher_id').references(() => membership.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ─── M3: Registry ─────────────────────────────────────────────────────────────
+
+// student_code_seq is defined in the migration (not in Drizzle schema)
+export const studentImportBatch = pgTable('student_import_batch', {
+  id: uuid('id').primaryKey().$defaultFn(() => uuidv7()),
+  schoolId: uuid('school_id').notNull().references(() => school.id),
+  fileName: text('file_name').notNull(),
+  rowCount: integer('row_count').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const student = pgTable('student', {
+  id: uuid('id').primaryKey().$defaultFn(() => uuidv7()),
+  schoolId: uuid('school_id').notNull().references(() => school.id),
+  studentCode: varchar('student_code', { length: 9 }).notNull().unique(),
+  lastName: text('last_name').notNull(),
+  postName: text('post_name').notNull(),
+  firstName: text('first_name').notNull(),
+  sex: sexEnum('sex').notNull(),
+  birthDate: date('birth_date').notNull(),
+  birthPlace: text('birth_place').notNull(),
+  photoRef: text('photo_ref'),
+  importBatchId: uuid('import_batch_id').references(() => studentImportBatch.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const guardian = pgTable('guardian', {
+  id: uuid('id').primaryKey().$defaultFn(() => uuidv7()),
+  schoolId: uuid('school_id').notNull().references(() => school.id),
+  fullName: text('full_name').notNull(),
+  phoneE164: text('phone_e164').notNull(),
+  relationship: text('relationship').notNull().default('guardian'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const studentGuardian = pgTable(
+  'student_guardian',
+  {
+    studentId: uuid('student_id').notNull().references(() => student.id),
+    guardianId: uuid('guardian_id').notNull().references(() => guardian.id),
+  },
+  (t) => [primaryKey({ columns: [t.studentId, t.guardianId] })],
+);
+
+export const enrollment = pgTable('enrollment', {
+  id: uuid('id').primaryKey().$defaultFn(() => uuidv7()),
+  schoolId: uuid('school_id').notNull().references(() => school.id),
+  studentId: uuid('student_id').notNull().references(() => student.id),
+  classSectionId: uuid('class_section_id').notNull().references(() => classSection.id),
+  yearId: uuid('year_id').notNull().references(() => academicYear.id),
+  status: enrollmentStatusEnum('status').notNull().default('active'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
