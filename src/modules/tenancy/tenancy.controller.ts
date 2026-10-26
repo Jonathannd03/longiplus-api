@@ -11,7 +11,7 @@ import {
   Inject,
   BadRequestException,
 } from '@nestjs/common';
-import { IsString, IsOptional, Matches, IsIn, Length, IsBoolean } from 'class-validator';
+import { IsString, IsOptional, Matches, IsIn, Length, IsBoolean, MaxLength } from 'class-validator';
 import { Throttle } from '@nestjs/throttler';
 import { RolesGuard } from '../identity/roles.guard.js';
 import { Roles, CurrentUser, Public } from '../identity/auth.decorator.js';
@@ -24,27 +24,27 @@ import { withSchoolContext } from '../../db/client.js';
 import { SMS_SENDER, type SmsSender } from '../notifications/sms-sender.interface.js';
 import type { AuthenticatedUser } from '../identity/authenticated-user.interface.js';
 
-interface UpdateSchoolDto {
-  name?: string;
-  province?: string;
-  city?: string;
-  address?: string;
-  contactPhone?: string;
-  logoRef?: string;
-  acceptCdfForUsd?: boolean;
-  cdfPerUsdRate?: string;
+class UpdateSchoolDto {
+  @IsOptional() @IsString() @MaxLength(100) name?: string;
+  @IsOptional() @IsString() @MaxLength(100) province?: string;
+  @IsOptional() @IsString() @MaxLength(100) city?: string;
+  @IsOptional() @IsString() @MaxLength(200) address?: string;
+  @IsOptional() @Matches(/^\+\d{8,15}$/) contactPhone?: string;
+  @IsOptional() @IsString() @MaxLength(200) logoRef?: string;
+  @IsOptional() @IsBoolean() acceptCdfForUsd?: boolean;
+  @IsOptional() @IsString() cdfPerUsdRate?: string;
 }
 
-interface CreatePayoutAccountDto {
-  kind: 'mobile_money' | 'bank';
-  operator?: string;
-  numberMasked: string;
+class CreatePayoutAccountDto {
+  @IsIn(['mobile_money', 'bank']) kind!: 'mobile_money' | 'bank';
+  @IsOptional() @IsString() @MaxLength(50) operator?: string;
+  @IsString() @MaxLength(50) numberMasked!: string;
 }
 
-interface InviteMemberDto {
-  email: string;
-  role: 'director' | 'bursar' | 'secretary' | 'teacher' | 'class_teacher';
-  keycloakUserId?: string;
+class InviteMemberDto {
+  @IsString() @MaxLength(100) email!: string;
+  @IsIn(['director', 'bursar', 'secretary', 'teacher', 'class_teacher']) role!: 'director' | 'bursar' | 'secretary' | 'teacher' | 'class_teacher';
+  @IsOptional() @IsString() keycloakUserId?: string;
 }
 
 export class PhoneInviteDto {

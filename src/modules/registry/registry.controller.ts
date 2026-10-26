@@ -14,6 +14,11 @@ import {
 } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import { Req } from '@nestjs/common';
+import {
+  IsString, IsOptional, IsIn, IsDateString, IsArray, IsNumber,
+  ValidateNested, MaxLength, MinLength, Matches, IsUUID,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 import { eq, and, inArray } from 'drizzle-orm';
 import { RolesGuard } from '../identity/roles.guard.js';
 import { Roles, CurrentUser } from '../identity/auth.decorator.js';
@@ -29,55 +34,65 @@ import { AttendanceService } from './attendance.service.js';
 import { AnnouncementService } from './announcement.service.js';
 import { AuditService } from '../identity/audit.service.js';
 
-interface EnrollDto {
-  lastName: string;
-  postName: string;
-  firstName: string;
-  sex: 'M' | 'F';
-  birthDate: string;
-  birthPlace: string;
-  classSectionId: string;
-  yearId: string;
-  guardianPhone?: string;
-  guardianName?: string;
+class EnrollDto {
+  @IsString() @MinLength(1) @MaxLength(100) lastName!: string;
+  @IsString() @MinLength(1) @MaxLength(100) postName!: string;
+  @IsString() @MinLength(1) @MaxLength(100) firstName!: string;
+  @IsIn(['M', 'F']) sex!: 'M' | 'F';
+  @IsDateString() birthDate!: string;
+  @IsString() @MinLength(1) @MaxLength(100) birthPlace!: string;
+  @IsUUID() classSectionId!: string;
+  @IsUUID() yearId!: string;
+  @IsOptional() @Matches(/^\+\d{8,15}$/) guardianPhone?: string;
+  @IsOptional() @IsString() @MaxLength(100) guardianName?: string;
 }
 
-interface UpdateStudentDto {
-  lastName?: string;
-  postName?: string;
-  firstName?: string;
-  sex?: 'M' | 'F';
-  birthDate?: string;
-  birthPlace?: string;
+class UpdateStudentDto {
+  @IsOptional() @IsString() @MaxLength(100) lastName?: string;
+  @IsOptional() @IsString() @MaxLength(100) postName?: string;
+  @IsOptional() @IsString() @MaxLength(100) firstName?: string;
+  @IsOptional() @IsIn(['M', 'F']) sex?: 'M' | 'F';
+  @IsOptional() @IsDateString() birthDate?: string;
+  @IsOptional() @IsString() @MaxLength(100) birthPlace?: string;
 }
 
-interface LinkGuardianDto {
-  phoneE164: string;
-  fullName?: string;
-  relationship?: string;
+class LinkGuardianDto {
+  @Matches(/^\+\d{8,15}$/) phoneE164!: string;
+  @IsOptional() @IsString() @MaxLength(100) fullName?: string;
+  @IsOptional() @IsString() @MaxLength(50) relationship?: string;
 }
 
-interface RecordAttendanceDto {
-  classSectionId: string;
-  date: string;
-  records: Array<{ studentId: string; status: 'present' | 'absent' | 'late' | 'excused' }>;
+class AttendanceRecord {
+  @IsUUID() studentId!: string;
+  @IsIn(['present', 'absent', 'late', 'excused']) status!: 'present' | 'absent' | 'late' | 'excused';
 }
 
-interface ReenrollDto {
-  fromYearId: string;
-  toYearId: string;
-  decisions: Array<{ studentId: string; toSectionId: string | null }>;
+class RecordAttendanceDto {
+  @IsUUID() classSectionId!: string;
+  @IsDateString() date!: string;
+  @IsArray() @ValidateNested({ each: true }) @Type(() => AttendanceRecord) records!: AttendanceRecord[];
 }
 
-interface WithdrawDto {
-  reason: string;
+class ReenrollDecisionDto {
+  @IsUUID() studentId!: string;
+  @IsOptional() @IsUUID() toSectionId!: string | null;
 }
 
-interface SendAnnouncementDto {
-  message: string;
-  audience: 'all' | 'section';
-  classSectionId?: string;
-  yearId: string;
+class ReenrollDto {
+  @IsUUID() fromYearId!: string;
+  @IsUUID() toYearId!: string;
+  @IsArray() @ValidateNested({ each: true }) @Type(() => ReenrollDecisionDto) decisions!: ReenrollDecisionDto[];
+}
+
+class WithdrawDto {
+  @IsString() @MinLength(1) @MaxLength(500) reason!: string;
+}
+
+class SendAnnouncementDto {
+  @IsString() @MinLength(1) @MaxLength(500) message!: string;
+  @IsIn(['all', 'section']) audience!: 'all' | 'section';
+  @IsOptional() @IsUUID() classSectionId?: string;
+  @IsUUID() yearId!: string;
 }
 
 @Controller()
@@ -137,6 +152,7 @@ export class RegistryController {
   }
 
   @Get('students')
+  @Roles('owner', 'director', 'secretary', 'teacher', 'class_teacher')
   list(
     @CurrentUser() user: AuthenticatedUser,
     @Query('q') q?: string,
@@ -192,7 +208,6 @@ export class RegistryController {
   ) {
     const s = await this.studentService.findById(user.schoolId, id);
     if (!s) throw new BadRequestException('Student not found');
-    if (!dto.phoneE164) throw new BadRequestException('phoneE164 required');
     return withSchoolContext(user.schoolId, (tx) =>
       this.guardianService.linkOrCreate(tx, user.schoolId, id, dto),
     );
@@ -236,9 +251,6 @@ export class RegistryController {
     @Body() dto: RecordAttendanceDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    if (!dto.classSectionId) throw new BadRequestException('classSectionId required');
-    if (!dto.date) throw new BadRequestException('date required');
-    if (!Array.isArray(dto.records)) throw new BadRequestException('records array required');
     const count = await withSchoolContext(user.schoolId, (tx) =>
       this.attendanceService.recordBatch(
         tx,
@@ -315,8 +327,6 @@ export class RegistryController {
   @Roles('director', 'owner', 'secretary')
   @HttpCode(200)
   async reenroll(@Body() dto: ReenrollDto, @CurrentUser() user: AuthenticatedUser) {
-    if (!dto.toYearId) throw new BadRequestException('toYearId required');
-    if (!Array.isArray(dto.decisions)) throw new BadRequestException('decisions array required');
     return withSchoolContext(user.schoolId, (tx) =>
       this.enrollmentService.reenroll(tx, user.schoolId, dto.toYearId, dto.decisions),
     );
@@ -329,7 +339,6 @@ export class RegistryController {
     @Body() dto: WithdrawDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    if (!dto.reason?.trim()) throw new BadRequestException('reason is required');
     return withSchoolContext(user.schoolId, async (tx) => {
       const row = await this.enrollmentService.withdraw(tx, user.schoolId, studentId, dto.reason);
       await this.auditService.writeEvent(tx, {
@@ -350,8 +359,6 @@ export class RegistryController {
     @Body() dto: SendAnnouncementDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    if (!dto.message?.trim()) throw new BadRequestException('message is required');
-    if (!dto.yearId) throw new BadRequestException('yearId is required');
     return withSchoolContext(user.schoolId, (tx) =>
       this.announcementService.send(tx, user.schoolId, dto, user.keycloakUserId),
     );
@@ -364,9 +371,20 @@ export class RegistryController {
   }
 }
 
+const ALLOWED_XLSX_MIMES = [
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel',
+  'text/csv',
+];
+
 async function readMultipartFile(req: FastifyRequest): Promise<{ buffer: Buffer; filename: string }> {
-  const data = await (req as unknown as { file: () => Promise<{ toBuffer: () => Promise<Buffer>; filename: string }> }).file();
+  const data = await (req as unknown as {
+    file: () => Promise<{ toBuffer: () => Promise<Buffer>; filename: string; mimetype: string }>;
+  }).file();
   if (!data) throw new BadRequestException('No file uploaded');
+  if (!ALLOWED_XLSX_MIMES.includes(data.mimetype)) {
+    throw new BadRequestException('File must be an Excel (.xlsx, .xls) or CSV file');
+  }
   const buffer = await data.toBuffer();
   return { buffer, filename: data.filename };
 }

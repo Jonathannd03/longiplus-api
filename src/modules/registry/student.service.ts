@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { eq, and, or, ne, ilike, inArray, sql } from 'drizzle-orm';
-import { dbOwner } from '../../db/client.js';
+import { dbOwner, withSchoolContext } from '../../db/client.js';
 import type { TxDB } from '../../db/client.js';
 import { student, enrollment, classSection, studentGuardian } from '../../db/schema.js';
 import { generateCode } from './luhn.js';
@@ -69,38 +69,38 @@ export class StudentService {
   }
 
   async list(schoolId: string, opts: { q?: string; classSectionId?: string; yearId?: string } = {}) {
-    const rows = await dbOwner
-      .select({
-        id: student.id,
-        studentCode: student.studentCode,
-        lastName: student.lastName,
-        postName: student.postName,
-        firstName: student.firstName,
-        sex: student.sex,
-        birthDate: student.birthDate,
-        birthPlace: student.birthPlace,
-        className: classSection.name,
-        createdAt: student.createdAt,
-      })
-      .from(student)
-      .leftJoin(enrollment, and(
-        eq(enrollment.studentId, student.id),
-        eq(enrollment.schoolId, schoolId),
-        eq(enrollment.status, 'active'),
-        opts.yearId ? eq(enrollment.yearId, opts.yearId) : sql`TRUE`,
-      ))
-      .leftJoin(classSection, eq(classSection.id, enrollment.classSectionId))
-      .where(and(
-        eq(student.schoolId, schoolId),
-        opts.q ? or(
-          ilike(student.lastName, `%${opts.q}%`),
-          ilike(student.firstName, `%${opts.q}%`),
-          ilike(student.studentCode, `%${opts.q}%`),
-        ) : undefined,
-        opts.classSectionId ? eq(enrollment.classSectionId, opts.classSectionId) : undefined,
-      ))
-      .limit(500);
-    return rows;
+    return withSchoolContext(schoolId, (tx) =>
+      tx
+        .select({
+          id: student.id,
+          studentCode: student.studentCode,
+          lastName: student.lastName,
+          postName: student.postName,
+          firstName: student.firstName,
+          sex: student.sex,
+          birthDate: student.birthDate,
+          birthPlace: student.birthPlace,
+          className: classSection.name,
+          createdAt: student.createdAt,
+        })
+        .from(student)
+        .leftJoin(enrollment, and(
+          eq(enrollment.studentId, student.id),
+          eq(enrollment.schoolId, schoolId),
+          eq(enrollment.status, 'active'),
+          opts.yearId ? eq(enrollment.yearId, opts.yearId) : sql`TRUE`,
+        ))
+        .leftJoin(classSection, eq(classSection.id, enrollment.classSectionId))
+        .where(and(
+          opts.q ? or(
+            ilike(student.lastName, `%${opts.q}%`),
+            ilike(student.firstName, `%${opts.q}%`),
+            ilike(student.studentCode, `%${opts.q}%`),
+          ) : undefined,
+          opts.classSectionId ? eq(enrollment.classSectionId, opts.classSectionId) : undefined,
+        ))
+        .limit(500),
+    );
   }
 
   async findById(schoolId: string, id: string) {
