@@ -23,7 +23,7 @@ interface KcJwtPayload {
 }
 
 const STAFF_ROLES = new Set<string>([
-  'owner', 'director', 'bursar', 'secretary', 'teacher', 'class_teacher', 'longiplus_admin',
+  'owner', 'director', 'bursar', 'secretary', 'teacher', 'class_teacher', 'kelasi_admin',
 ]);
 
 @Injectable()

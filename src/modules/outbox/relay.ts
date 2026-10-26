@@ -4,6 +4,18 @@ import { sql, isNull, inArray } from 'drizzle-orm';
 import { outbox } from '../../db/schema.js';
 import type * as schema from '../../db/schema.js';
 
+// One Queue instance per topic — avoids opening/closing a Redis connection per outbox row
+const queueCache = new Map<string, Queue>();
+
+function getQueue(topic: string, redisUrl: string): Queue {
+  let q = queueCache.get(topic);
+  if (!q) {
+    q = new Queue(topic, { connection: { url: redisUrl } });
+    queueCache.set(topic, q);
+  }
+  return q;
+}
+
 export async function relayOutbox(
   db: PostgresJsDatabase<typeof schema>,
   redisUrl: string,
@@ -22,9 +34,8 @@ export async function relayOutbox(
     relayed = rows.length;
 
     for (const row of rows) {
-      const queue = new Queue(row.topic, { connection: { url: redisUrl } });
+      const queue = getQueue(row.topic, redisUrl);
       await queue.add(row.topic, row.payload, { jobId: row.id });
-      await queue.close();
     }
 
     const ids = rows.map((r) => r.id);

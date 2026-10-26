@@ -83,7 +83,6 @@ describe('relayOutbox', () => {
       { studentId: 'stu-1', amount: 5000 },
       { jobId: rowId },
     );
-    expect(mockClose).toHaveBeenCalled();
 
     const rows = await ownerSql`SELECT sent_at FROM outbox WHERE id = ${rowId}`;
     expect(rows[0]?.['sent_at']).not.toBeNull();
