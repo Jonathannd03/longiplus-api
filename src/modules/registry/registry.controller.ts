@@ -137,6 +137,7 @@ export class RegistryController {
   }
 
   @Get('students')
+  @Roles('owner', 'director', 'secretary', 'teacher', 'class_teacher')
   list(
     @CurrentUser() user: AuthenticatedUser,
     @Query('q') q?: string,
