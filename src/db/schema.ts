@@ -251,5 +251,122 @@ export const enrollment = pgTable('enrollment', {
   classSectionId: uuid('class_section_id').notNull().references(() => classSection.id),
   yearId: uuid('year_id').notNull().references(() => academicYear.id),
   status: enrollmentStatusEnum('status').notNull().default('active'),
+  withdrawalReason: text('withdrawal_reason'),
+  withdrawnAt: timestamp('withdrawn_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ─── M7: Grades ───────────────────────────────────────────────────────────────
+
+export const mark = pgTable(
+  'mark',
+  {
+    id: uuid('id').primaryKey().$defaultFn(() => uuidv7()),
+    schoolId: uuid('school_id').notNull().references(() => school.id),
+    studentId: uuid('student_id').notNull().references(() => student.id),
+    subjectId: uuid('subject_id').notNull().references(() => subject.id),
+    periodId: uuid('period_id').notNull().references(() => period.id),
+    score: integer('score'),
+    recordedBy: text('recorded_by').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('mark_student_subject_period_uidx').on(t.studentId, t.subjectId, t.periodId)],
+);
+
+export const correctionStatusEnum = pgEnum('correction_status', ['pending', 'approved', 'rejected']);
+
+export const correctionRequest = pgTable('correction_request', {
+  id: uuid('id').primaryKey().$defaultFn(() => uuidv7()),
+  schoolId: uuid('school_id').notNull().references(() => school.id),
+  markId: uuid('mark_id').notNull().references(() => mark.id),
+  requestedBy: text('requested_by').notNull(),
+  reason: text('reason').notNull(),
+  newScore: integer('new_score').notNull(),
+  status: correctionStatusEnum('status').notNull().default('pending'),
+  reviewedBy: text('reviewed_by'),
+  reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+  reviewNote: text('review_note'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ─── M3b: Attendance ──────────────────────────────────────────────────────────
+
+export const attendanceStatusEnum = pgEnum('attendance_status', [
+  'present',
+  'absent',
+  'late',
+  'excused',
+]);
+
+export const attendance = pgTable(
+  'attendance',
+  {
+    id: uuid('id').primaryKey().$defaultFn(() => uuidv7()),
+    schoolId: uuid('school_id').notNull().references(() => school.id),
+    studentId: uuid('student_id').notNull().references(() => student.id),
+    classSectionId: uuid('class_section_id').notNull().references(() => classSection.id),
+    date: date('date').notNull(),
+    status: attendanceStatusEnum('status').notNull().default('absent'),
+    recordedBy: text('recorded_by').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('attendance_student_date_section_uidx').on(t.studentId, t.classSectionId, t.date),
+  ],
+);
+
+// ─── M8: Announcements, Bulletins, Public sign-up ────────────────────────────
+
+export const announcementAudienceEnum = pgEnum('announcement_audience', [
+  'all',
+  'section',
+]);
+
+export const announcement = pgTable('announcement', {
+  id: uuid('id').primaryKey().$defaultFn(() => uuidv7()),
+  schoolId: uuid('school_id').notNull().references(() => school.id),
+  authorId: text('author_id').notNull(),
+  message: text('message').notNull(),
+  audience: announcementAudienceEnum('audience').notNull().default('all'),
+  classSectionId: uuid('class_section_id').references(() => classSection.id),
+  scheduledAt: timestamp('scheduled_at', { withTimezone: true }),
+  sentAt: timestamp('sent_at', { withTimezone: true }),
+  recipientCount: integer('recipient_count').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const bulletin = pgTable('bulletin', {
+  id: uuid('id').primaryKey().$defaultFn(() => uuidv7()),
+  schoolId: uuid('school_id').notNull().references(() => school.id),
+  studentId: uuid('student_id').notNull().references(() => student.id),
+  classSectionId: uuid('class_section_id').notNull().references(() => classSection.id),
+  periodId: uuid('period_id').notNull().references(() => period.id),
+  yearId: uuid('year_id').notNull().references(() => academicYear.id),
+  pdfRef: text('pdf_ref'),
+  publicToken: varchar('public_token', { length: 64 }).unique(),
+  publishedAt: timestamp('published_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const applicationStatusEnum = pgEnum('application_status', [
+  'pending',
+  'approved',
+  'rejected',
+]);
+
+export const schoolApplication = pgTable('school_application', {
+  id: uuid('id').primaryKey().$defaultFn(() => uuidv7()),
+  schoolName: text('school_name').notNull(),
+  province: text('province').notNull(),
+  city: text('city').notNull(),
+  address: text('address'),
+  directorName: text('director_name').notNull(),
+  directorPhone: text('director_phone').notNull(),
+  email: text('email'),
+  estimatedStudents: integer('estimated_students'),
+  activationCode: varchar('activation_code', { length: 8 }),
+  activationCodeExpiresAt: timestamp('activation_code_expires_at', { withTimezone: true }),
+  status: applicationStatusEnum('status').notNull().default('pending'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

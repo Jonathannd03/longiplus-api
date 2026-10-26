@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { eq, and, or, ilike, inArray, sql } from 'drizzle-orm';
+import { eq, and, or, ne, ilike, inArray, sql } from 'drizzle-orm';
 import { dbOwner } from '../../db/client.js';
 import type { TxDB } from '../../db/client.js';
 import { student, enrollment, classSection, studentGuardian } from '../../db/schema.js';
@@ -109,6 +109,49 @@ export class StudentService {
       .where(and(eq(student.id, id), eq(student.schoolId, schoolId)))
       .limit(1);
     return row ?? null;
+  }
+
+  async update(tx: TxDB, schoolId: string, id: string, dto: Partial<{
+    lastName: string; postName: string; firstName: string;
+    sex: 'M' | 'F'; birthDate: string; birthPlace: string;
+  }>) {
+    const [row] = await tx
+      .update(student)
+      .set(dto)
+      .where(and(eq(student.id, id), eq(student.schoolId, schoolId)))
+      .returning();
+    return row ?? null;
+  }
+
+  async findSiblings(schoolId: string, studentId: string) {
+    const sharedGuardianSq = dbOwner
+      .select({ guardianId: studentGuardian.guardianId })
+      .from(studentGuardian)
+      .where(eq(studentGuardian.studentId, studentId));
+
+    return dbOwner
+      .selectDistinct({
+        id: student.id,
+        studentCode: student.studentCode,
+        lastName: student.lastName,
+        postName: student.postName,
+        firstName: student.firstName,
+        sex: student.sex,
+        className: classSection.name,
+      })
+      .from(student)
+      .innerJoin(studentGuardian, eq(studentGuardian.studentId, student.id))
+      .leftJoin(enrollment, and(
+        eq(enrollment.studentId, student.id),
+        eq(enrollment.schoolId, schoolId),
+        eq(enrollment.status, 'active'),
+      ))
+      .leftJoin(classSection, eq(classSection.id, enrollment.classSectionId))
+      .where(and(
+        eq(student.schoolId, schoolId),
+        ne(student.id, studentId),
+        inArray(studentGuardian.guardianId, sharedGuardianSq),
+      ));
   }
 
   async deleteByBatchId(tx: TxDB, schoolId: string, batchId: string) {

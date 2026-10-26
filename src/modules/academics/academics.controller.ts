@@ -2,9 +2,11 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Patch,
   Param,
   Body,
+  Query,
   UseGuards,
   NotFoundException,
 } from '@nestjs/common';
@@ -13,8 +15,14 @@ import { Roles, CurrentUser } from '../identity/auth.decorator.js';
 import { AcademicYearService } from './academic-year.service.js';
 import { ClassSectionService } from './class-section.service.js';
 import { SubjectService } from './subject.service.js';
+import { MarkService } from './mark.service.js';
+import { CorrectionService } from './correction.service.js';
+import { BulletinService } from './bulletin.service.js';
 import { AuditService } from '../identity/audit.service.js';
 import { withSchoolContext } from '../../db/client.js';
+import { dbOwner } from '../../db/client.js';
+import { period } from '../../db/schema.js';
+import { eq, and } from 'drizzle-orm';
 import type { AuthenticatedUser } from '../identity/authenticated-user.interface.js';
 
 interface CreateAcademicYearDto {
@@ -52,6 +60,9 @@ export class AcademicsController {
     private readonly yearService: AcademicYearService,
     private readonly sectionService: ClassSectionService,
     private readonly subjectService: SubjectService,
+    private readonly markService: MarkService,
+    private readonly correctionService: CorrectionService,
+    private readonly bulletinService: BulletinService,
     private readonly auditService: AuditService,
   ) {}
 
@@ -156,5 +167,219 @@ export class AcademicsController {
       });
       return sub;
     });
+  }
+
+  // ─── Periods ───────────────────────────────────────────────────────────────
+
+  @Get('academic-years/:yearId/periods')
+  async listPeriods(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('yearId') yearId: string,
+  ) {
+    return dbOwner
+      .select()
+      .from(period)
+      .where(and(eq(period.yearId, yearId), eq(period.schoolId, user.schoolId)))
+      .orderBy(period.sequence);
+  }
+
+  @Patch('periods/:id/close')
+  @Roles('director', 'owner')
+  async closePeriod(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return withSchoolContext(user.schoolId, async (tx) => {
+      const [p] = await dbOwner
+        .select()
+        .from(period)
+        .where(and(eq(period.id, id), eq(period.schoolId, user.schoolId)))
+        .limit(1);
+      if (!p) throw new NotFoundException('Period not found');
+      const [updated] = await tx.update(period).set({ status: 'closed' }).where(eq(period.id, id)).returning();
+      await this.auditService.writeEvent(tx, {
+        schoolId: user.schoolId,
+        actor: user.keycloakUserId,
+        action: 'period.closed',
+        entity: 'period',
+        entityId: id,
+      });
+      return updated;
+    });
+  }
+
+  @Patch('periods/:id/lock')
+  @Roles('director', 'owner')
+  async lockPeriod(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return withSchoolContext(user.schoolId, async (tx) => {
+      const [p] = await dbOwner
+        .select()
+        .from(period)
+        .where(and(eq(period.id, id), eq(period.schoolId, user.schoolId)))
+        .limit(1);
+      if (!p) throw new NotFoundException('Period not found');
+      const [updated] = await tx.update(period).set({ status: 'locked' }).where(eq(period.id, id)).returning();
+      await this.auditService.writeEvent(tx, {
+        schoolId: user.schoolId,
+        actor: user.keycloakUserId,
+        action: 'period.locked',
+        entity: 'period',
+        entityId: id,
+      });
+      return updated;
+    });
+  }
+
+  // ─── Marks ─────────────────────────────────────────────────────────────────
+
+  @Get('subjects/:subjectId/marks')
+  async listMarks(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('subjectId') subjectId: string,
+    @Query('periodId') periodId: string,
+  ) {
+    const result = await this.markService.listBySubjectAndPeriod(user.schoolId, subjectId, periodId);
+    if (!result) throw new NotFoundException('Subject or period not found');
+    return result;
+  }
+
+  @Put('subjects/:subjectId/marks/batch')
+  @Roles('teacher', 'class_teacher', 'director', 'owner', 'secretary')
+  async batchMarks(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('subjectId') subjectId: string,
+    @Body() dto: { periodId: string; records: { studentId: string; score: number | null }[] },
+  ) {
+    return withSchoolContext(user.schoolId, async (tx) => {
+      return this.markService.batchUpsert(tx, user.schoolId, subjectId, dto.periodId, dto.records, user.keycloakUserId);
+    });
+  }
+
+  @Get('class-sections/:id/results')
+  async sectionResults(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') classSectionId: string,
+    @Query('periodId') periodId: string,
+  ) {
+    const result = await this.markService.computeResults(user.schoolId, classSectionId, periodId);
+    if (!result) throw new NotFoundException('Period not found');
+    return result;
+  }
+
+  @Get('students/:studentId/marks')
+  async studentMarks(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('studentId') studentId: string,
+    @Query('yearId') yearId: string,
+  ) {
+    return this.markService.listByStudent(user.schoolId, studentId, yearId);
+  }
+
+  // ─── Corrections ───────────────────────────────────────────────────────────
+
+  @Post('corrections')
+  @Roles('teacher', 'class_teacher', 'director')
+  async createCorrection(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: { markId: string; reason: string; newScore: number },
+  ) {
+    return withSchoolContext(user.schoolId, async (tx) => {
+      return this.correctionService.create(tx, user.schoolId, dto, user.keycloakUserId);
+    });
+  }
+
+  @Get('corrections')
+  @Roles('director', 'owner', 'teacher', 'class_teacher')
+  async listCorrections(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('status') status?: string,
+    @Query('classSectionId') classSectionId?: string,
+  ) {
+    const filters: { status?: string; classSectionId?: string } = {};
+    if (status) filters.status = status;
+    if (classSectionId) filters.classSectionId = classSectionId;
+    return this.correctionService.list(user.schoolId, filters);
+  }
+
+  @Patch('corrections/:id/approve')
+  @Roles('director', 'owner')
+  async approveCorrection(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    return withSchoolContext(user.schoolId, async (tx) => {
+      const result = await this.correctionService.approve(tx, user.schoolId, id, user.keycloakUserId);
+      await this.auditService.writeEvent(tx, {
+        schoolId: user.schoolId,
+        actor: user.keycloakUserId,
+        action: 'correction.approved',
+        entity: 'correction_request',
+        entityId: id,
+      });
+      return result;
+    });
+  }
+
+  @Patch('corrections/:id/reject')
+  @Roles('director', 'owner')
+  async rejectCorrection(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: { note: string },
+  ) {
+    return withSchoolContext(user.schoolId, async (tx) => {
+      const result = await this.correctionService.reject(tx, user.schoolId, id, user.keycloakUserId, dto.note);
+      await this.auditService.writeEvent(tx, {
+        schoolId: user.schoolId,
+        actor: user.keycloakUserId,
+        action: 'correction.rejected',
+        entity: 'correction_request',
+        entityId: id,
+      });
+      return result;
+    });
+  }
+
+  // ─── Bulletins ─────────────────────────────────────────────────────────────
+
+  @Get('bulletins/status')
+  @Roles('director', 'owner', 'secretary')
+  async bulletinStatus(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('yearId') yearId: string,
+  ) {
+    if (!yearId) throw new NotFoundException('yearId required');
+    return this.bulletinService.sectionStatus(user.schoolId, yearId);
+  }
+
+  @Post('bulletins/generate')
+  @Roles('director', 'owner')
+  async generateBulletins(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: { classSectionId: string; periodId: string; yearId: string },
+  ) {
+    return withSchoolContext(user.schoolId, async (tx) => {
+      const generated = await this.bulletinService.generate(
+        tx,
+        user.schoolId,
+        dto.classSectionId,
+        dto.periodId,
+        dto.yearId,
+        user.keycloakUserId,
+      );
+      await this.auditService.writeEvent(tx, {
+        schoolId: user.schoolId,
+        actor: user.keycloakUserId,
+        action: 'bulletins.generated',
+        entity: 'bulletin',
+        after: { classSectionId: dto.classSectionId, periodId: dto.periodId, count: generated.length },
+      });
+      return { generated: generated.length, bulletins: generated };
+    });
+  }
+
+  @Get('bulletins/public/:token')
+  @Roles()
+  async getBulletinByToken(@Param('token') token: string) {
+    const b = await this.bulletinService.getByToken(token);
+    if (!b) throw new NotFoundException('Bulletin not found');
+    return b;
   }
 }

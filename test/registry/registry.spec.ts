@@ -66,6 +66,12 @@ beforeAll(async () => {
     '0003_m2_rls_grants.sql',
     '0004_m3_registry.sql',
     '0005_m3_rls.sql',
+    '0006_m3b_attendance.sql',
+    '0007_m3b_rls.sql',
+    '0008_m7_marks.sql',
+    '0009_m7_marks_rls.sql',
+    '0010_m8_schema.sql',
+    '0011_m8_rls.sql',
   ]) {
     const sql = await readFile(resolve(__dirname, `../../drizzle/${file}`), 'utf8');
     if (file.endsWith('_rls.sql') || file.endsWith('_grants.sql') || file.endsWith('_rls_grants.sql')) {
