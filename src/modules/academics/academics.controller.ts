@@ -10,6 +10,11 @@ import {
   UseGuards,
   NotFoundException,
 } from '@nestjs/common';
+import {
+  IsString, IsOptional, IsIn, IsDateString, IsArray, IsNumber,
+  ValidateNested, MaxLength, MinLength, IsUUID, Min, Max,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 import { RolesGuard } from '../identity/roles.guard.js';
 import { Roles, CurrentUser } from '../identity/auth.decorator.js';
 import { AcademicYearService } from './academic-year.service.js';
@@ -25,32 +30,58 @@ import { period } from '../../db/schema.js';
 import { eq, and } from 'drizzle-orm';
 import type { AuthenticatedUser } from '../identity/authenticated-user.interface.js';
 
-interface CreateAcademicYearDto {
-  label: string;
-  startsOn: string;
-  endsOn: string;
-  gradingType: 'primary' | 'secondary';
+class CreateAcademicYearDto {
+  @IsString() @MinLength(1) @MaxLength(50) label!: string;
+  @IsDateString() startsOn!: string;
+  @IsDateString() endsOn!: string;
+  @IsIn(['primary', 'secondary']) gradingType!: 'primary' | 'secondary';
 }
 
-interface CreateClassSectionDto {
-  level: string;
-  option?: string;
-  name: string;
-  classTeacherId?: string;
+class CreateClassSectionDto {
+  @IsString() @MinLength(1) @MaxLength(50) level!: string;
+  @IsOptional() @IsString() @MaxLength(50) option?: string;
+  @IsString() @MinLength(1) @MaxLength(100) name!: string;
+  @IsOptional() @IsUUID() classTeacherId?: string;
 }
 
-interface CreateSubjectDto {
-  name: string;
-  maxPeriod?: number;
-  maxExam?: number;
-  teacherId?: string;
+class CreateSubjectDto {
+  @IsString() @MinLength(1) @MaxLength(100) name!: string;
+  @IsOptional() @IsNumber() @Min(0) @Max(1000) maxPeriod?: number;
+  @IsOptional() @IsNumber() @Min(0) @Max(1000) maxExam?: number;
+  @IsOptional() @IsUUID() teacherId?: string;
 }
 
-interface UpdateSubjectDto {
-  name?: string;
-  maxPeriod?: number;
-  maxExam?: number;
-  teacherId?: string;
+class UpdateSubjectDto {
+  @IsOptional() @IsString() @MaxLength(100) name?: string;
+  @IsOptional() @IsNumber() @Min(0) @Max(1000) maxPeriod?: number;
+  @IsOptional() @IsNumber() @Min(0) @Max(1000) maxExam?: number;
+  @IsOptional() @IsUUID() teacherId?: string;
+}
+
+class MarkRecord {
+  @IsUUID() studentId!: string;
+  @IsOptional() @IsNumber() @Min(0) @Max(10000) score!: number | null;
+}
+
+class BatchMarksDto {
+  @IsUUID() periodId!: string;
+  @IsArray() @ValidateNested({ each: true }) @Type(() => MarkRecord) records!: MarkRecord[];
+}
+
+class CreateCorrectionDto {
+  @IsUUID() markId!: string;
+  @IsString() @MinLength(1) @MaxLength(500) reason!: string;
+  @IsNumber() @Min(0) @Max(10000) newScore!: number;
+}
+
+class RejectCorrectionDto {
+  @IsString() @MinLength(1) @MaxLength(500) note!: string;
+}
+
+class GenerateBulletinsDto {
+  @IsUUID() classSectionId!: string;
+  @IsUUID() periodId!: string;
+  @IsUUID() yearId!: string;
 }
 
 @Controller()
@@ -245,7 +276,7 @@ export class AcademicsController {
   async batchMarks(
     @CurrentUser() user: AuthenticatedUser,
     @Param('subjectId') subjectId: string,
-    @Body() dto: { periodId: string; records: { studentId: string; score: number | null }[] },
+    @Body() dto: BatchMarksDto,
   ) {
     return withSchoolContext(user.schoolId, async (tx) => {
       return this.markService.batchUpsert(tx, user.schoolId, subjectId, dto.periodId, dto.records, user.keycloakUserId);
@@ -278,7 +309,7 @@ export class AcademicsController {
   @Roles('teacher', 'class_teacher', 'director')
   async createCorrection(
     @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: { markId: string; reason: string; newScore: number },
+    @Body() dto: CreateCorrectionDto,
   ) {
     return withSchoolContext(user.schoolId, async (tx) => {
       return this.correctionService.create(tx, user.schoolId, dto, user.keycloakUserId);
@@ -322,7 +353,7 @@ export class AcademicsController {
   async rejectCorrection(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
-    @Body() dto: { note: string },
+    @Body() dto: RejectCorrectionDto,
   ) {
     return withSchoolContext(user.schoolId, async (tx) => {
       const result = await this.correctionService.reject(tx, user.schoolId, id, user.keycloakUserId, dto.note);
@@ -353,7 +384,7 @@ export class AcademicsController {
   @Roles('director', 'owner')
   async generateBulletins(
     @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: { classSectionId: string; periodId: string; yearId: string },
+    @Body() dto: GenerateBulletinsDto,
   ) {
     return withSchoolContext(user.schoolId, async (tx) => {
       const generated = await this.bulletinService.generate(

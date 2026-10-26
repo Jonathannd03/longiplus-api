@@ -9,8 +9,12 @@ const ownerConnectionString =
   process.env['DATABASE_URL'] ?? 'postgres://longiplus:longiplus@localhost:5433/longiplus';
 
 // App connection — used by the API process (longiplus_app_user, subject to RLS)
+const appUrl = process.env['DATABASE_APP_URL'];
+if (!appUrl) {
+  console.warn('[DB] DATABASE_APP_URL not set — falling back to owner connection. RLS will NOT be enforced.');
+}
 const appConnectionString =
-  process.env['DATABASE_APP_URL'] ?? process.env['DATABASE_URL'] ?? 'postgres://longiplus:longiplus@localhost:5433/longiplus';
+  appUrl ?? process.env['DATABASE_URL'] ?? 'postgres://longiplus:longiplus@localhost:5433/longiplus';
 
 const queryClient = postgres(appConnectionString);
 export const db = drizzle(queryClient, { schema });

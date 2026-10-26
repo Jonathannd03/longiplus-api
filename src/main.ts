@@ -7,6 +7,12 @@ import helmet from 'helmet';
 import { AppModule } from './app.module.js';
 import { JwtAuthGuard } from './modules/identity/jwt.guard.js';
 
+const REQUIRED_ENV = ['DATABASE_URL', 'REDIS_URL', 'KEYCLOAK_JWKS_URL', 'KEYCLOAK_ISSUER'];
+const missingEnv = REQUIRED_ENV.filter((k) => !process.env[k]);
+if (missingEnv.length > 0) {
+  throw new Error(`Missing required environment variables: ${missingEnv.join(', ')}`);
+}
+
 if (!process.env['DATABASE_APP_URL'] && process.env['NODE_ENV'] === 'production') {
   throw new Error('DATABASE_APP_URL is required in production');
 }
