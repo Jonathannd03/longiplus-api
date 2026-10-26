@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Inject,
   Post,
   Put,
   Patch,
@@ -57,13 +58,13 @@ interface UpdateSubjectDto {
 @UseGuards(RolesGuard)
 export class AcademicsController {
   constructor(
-    private readonly yearService: AcademicYearService,
-    private readonly sectionService: ClassSectionService,
-    private readonly subjectService: SubjectService,
-    private readonly markService: MarkService,
-    private readonly correctionService: CorrectionService,
-    private readonly bulletinService: BulletinService,
-    private readonly auditService: AuditService,
+    @Inject(AcademicYearService) private readonly yearService: AcademicYearService,
+    @Inject(ClassSectionService) private readonly sectionService: ClassSectionService,
+    @Inject(SubjectService) private readonly subjectService: SubjectService,
+    @Inject(MarkService) private readonly markService: MarkService,
+    @Inject(CorrectionService) private readonly correctionService: CorrectionService,
+    @Inject(BulletinService) private readonly bulletinService: BulletinService,
+    @Inject(AuditService) private readonly auditService: AuditService,
   ) {}
 
   @Post('academic-years')

@@ -62,11 +62,11 @@ export class VerifyInviteDto {
 export class TenancyController {
   constructor(
     @Inject(SMS_SENDER) private readonly sms: SmsSender,
-    private readonly schoolService: SchoolService,
-    private readonly payoutAccountService: PayoutAccountService,
-    private readonly membershipService: MembershipService,
-    private readonly auditService: AuditService,
-    private readonly outboxService: OutboxService,
+    @Inject(SchoolService) private readonly schoolService: SchoolService,
+    @Inject(PayoutAccountService) private readonly payoutAccountService: PayoutAccountService,
+    @Inject(MembershipService) private readonly membershipService: MembershipService,
+    @Inject(AuditService) private readonly auditService: AuditService,
+    @Inject(OutboxService) private readonly outboxService: OutboxService,
   ) {}
 
   @Get('school')

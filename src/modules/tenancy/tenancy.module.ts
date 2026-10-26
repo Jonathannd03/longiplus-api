@@ -14,6 +14,6 @@ import { NotificationsModule } from '../notifications/notifications.module.js';
   imports: [OutboxModule, NotificationsModule],
   controllers: [TenancyController, RegistrationController],
   providers: [MembershipService, SchoolService, PayoutAccountService, RegistrationService, AuditService, RolesGuard],
-  exports: [MembershipService, SchoolService, PayoutAccountService],
+  exports: [MembershipService, SchoolService, PayoutAccountService, AuditService],
 })
 export class TenancyModule {}

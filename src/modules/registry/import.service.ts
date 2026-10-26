@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import * as XLSX from 'xlsx';
 import { eq, and } from 'drizzle-orm';
 import { dbOwner, withSchoolContext } from '../../db/client.js';
@@ -17,6 +17,7 @@ export interface PreviewRow {
   birthDate: string;
   birthPlace: string;
   guardianPhone: string;
+  guardianName: string;
   className: string;
   errors: string[];
   warnings: string[];
@@ -30,7 +31,11 @@ export interface ImportPreview {
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const PHONE_RE = /^\+\d{7,15}$/;
 
-function normalizeDate(raw: string): string {
+function normalizeDate(raw: unknown): string {
+  // xlsx cellDates:true returns Date objects — add 12h to avoid UTC midnight timezone drift
+  if (raw instanceof Date) {
+    return new Date(raw.getTime() + 12 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  }
   const s = String(raw ?? '').trim();
   if (DATE_RE.test(s)) return s;
   // Try DD/MM/YYYY
@@ -46,15 +51,23 @@ function normalizePhone(raw: string): string {
 }
 
 function str(v: unknown): string {
+  if (v instanceof Date) return v.toISOString();
   return String(v ?? '').trim();
+}
+
+function col(r: Record<string, unknown>, ...keys: string[]): unknown {
+  for (const k of keys) {
+    if (r[k] !== undefined && r[k] !== '') return r[k];
+  }
+  return '';
 }
 
 @Injectable()
 export class ImportService {
   constructor(
-    private readonly studentService: StudentService,
-    private readonly guardianService: GuardianService,
-    private readonly enrollmentService: EnrollmentService,
+    @Inject(StudentService) private readonly studentService: StudentService,
+    @Inject(GuardianService) private readonly guardianService: GuardianService,
+    @Inject(EnrollmentService) private readonly enrollmentService: EnrollmentService,
   ) {}
 
   async preview(schoolId: string, yearId: string, buffer: Buffer, fileName: string): Promise<ImportPreview> {
@@ -116,7 +129,7 @@ export class ImportService {
 
         if (row.guardianPhone) {
           await this.guardianService.createAndLink(tx, schoolId, s.id, {
-            fullName: `${row.lastName} ${row.firstName} (tuteur)`,
+            fullName: row.guardianName || `${row.lastName} ${row.firstName} (tuteur)`,
             phoneE164: row.guardianPhone,
           });
         }
@@ -148,21 +161,14 @@ export class ImportService {
     return { deleted };
   }
 
-  private parseExcel(buffer: Buffer): Record<string, string>[] {
+  private parseExcel(buffer: Buffer): Record<string, unknown>[] {
     const wb = XLSX.read(buffer, { type: 'buffer', cellDates: true });
     const ws = wb.Sheets[wb.SheetNames[0]!]!;
-    const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
-    return raw.map(r => {
-      const row: Record<string, string> = {};
-      for (const [k, v] of Object.entries(r)) {
-        row[k] = str(v);
-      }
-      return row;
-    });
+    return XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
   }
 
   private buildPreview(
-    rows: Record<string, string>[],
+    rows: Record<string, unknown>[],
     sectionMap: Map<string, string>,
   ): ImportPreview {
     const preview: PreviewRow[] = [];
@@ -171,25 +177,30 @@ export class ImportService {
       const errors: string[] = [];
       const warnings: string[] = [];
 
-      const lastName = str(r['Nom'] ?? r['nom'] ?? r['NOM'] ?? '');
-      const postName = str(r['Post-nom'] ?? r['post_nom'] ?? r['POSTNOM'] ?? r['Postnom'] ?? '');
-      const firstName = str(r['Prénom'] ?? r['prenom'] ?? r['PRENOM'] ?? r['Prenom'] ?? '');
-      const rawSex = str(r['Sexe'] ?? r['sexe'] ?? r['SEX'] ?? '').toUpperCase();
+      const lastName = str(col(r, 'Nom', 'nom', 'NOM'));
+      const postName = str(col(r, 'Post-nom', 'post_nom', 'POSTNOM', 'Postnom'));
+      const firstName = str(col(r, 'Prénom', 'prenom', 'PRENOM', 'Prenom'));
+      const rawSex = str(col(r, 'Sexe', 'sexe', 'SEX')).toUpperCase();
       const sex = rawSex === 'M' || rawSex === 'GARÇON' || rawSex === 'GARCON' ? 'M'
                 : rawSex === 'F' || rawSex === 'FILLE' ? 'F' : rawSex;
-      const rawDate = str(r['Date de naissance'] ?? r['date_naissance'] ?? r['DateNaissance'] ?? '');
+      const rawDate = col(r, 'Date de naissance', 'date_naissance', 'DateNaissance');
       const birthDate = normalizeDate(rawDate);
-      const birthPlace = str(r['Lieu de naissance'] ?? r['lieu_naissance'] ?? r['LieuNaissance'] ?? '');
-      const rawPhone = str(r['Téléphone tuteur'] ?? r['telephone_tuteur'] ?? r['Phone'] ?? r['phone'] ?? '');
+      const birthPlace = str(col(r, 'Lieu de naissance', 'lieu_naissance', 'LieuNaissance'));
+      const rawPhone = str(col(r,
+        'Téléphone du parent', 'Telephone du parent',
+        'Téléphone tuteur', 'telephone_tuteur',
+        'Phone', 'phone',
+      ));
       const guardianPhone = rawPhone ? normalizePhone(rawPhone) : '';
-      const className = str(r['Classe'] ?? r['classe'] ?? r['CLASS'] ?? '');
+      const guardianName = str(col(r, 'Nom du parent', 'Nom tuteur', 'nom_parent', 'nom_tuteur'));
+      const className = str(col(r, 'Classe', 'classe', 'CLASS'));
 
       if (!lastName) errors.push('Nom manquant');
       if (!postName) errors.push('Post-nom manquant');
       if (!firstName) errors.push('Prénom manquant');
       if (sex !== 'M' && sex !== 'F') errors.push(`Sexe invalide "${rawSex}"`);
-      if (!DATE_RE.test(birthDate)) errors.push(`Date invalide "${rawDate}"`);
-      if (!birthPlace) errors.push('Lieu de naissance manquant');
+      if (!DATE_RE.test(birthDate)) errors.push(`Date invalide (attendu AAAA-MM-JJ ou JJ/MM/AAAA)`);
+      if (!birthPlace) warnings.push('Lieu de naissance non renseigné');
       if (guardianPhone && !PHONE_RE.test(guardianPhone)) {
         warnings.push(`Téléphone "${guardianPhone}" invalide (ignoré)`);
       }
@@ -198,7 +209,7 @@ export class ImportService {
         errors.push(`Classe "${className}" introuvable`);
       }
 
-      preview.push({ line: i + 2, lastName, postName, firstName, sex, birthDate, birthPlace, guardianPhone, className, errors, warnings });
+      preview.push({ line: i + 2, lastName, postName, firstName, sex, birthDate, birthPlace, guardianPhone, guardianName, className, errors, warnings });
     }
 
     const stats = {

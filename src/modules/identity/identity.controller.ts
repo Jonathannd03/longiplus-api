@@ -1,4 +1,4 @@
-import { Controller, Get, Post } from '@nestjs/common';
+import { Controller, Get, Inject, Post } from '@nestjs/common';
 import { CurrentUser } from './auth.decorator.js';
 import { AuditService } from './audit.service.js';
 import { MembershipService } from '../tenancy/membership.service.js';
@@ -9,8 +9,8 @@ import type { AuthenticatedUser } from './authenticated-user.interface.js';
 @Controller('auth')
 export class IdentityController {
   constructor(
-    private readonly auditService: AuditService,
-    private readonly membershipService: MembershipService,
+    @Inject(AuditService) private readonly auditService: AuditService,
+    @Inject(MembershipService) private readonly membershipService: MembershipService,
   ) {}
 
   /**

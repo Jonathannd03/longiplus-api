@@ -1,11 +1,11 @@
-import { Body, Controller, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, Inject, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '../identity/auth.decorator.js';
 import { RegistrationService, ApplyDto } from './registration.service.js';
 
 @Controller()
 export class RegistrationController {
-  constructor(private readonly registrationService: RegistrationService) {}
+  constructor(@Inject(RegistrationService) private readonly registrationService: RegistrationService) {}
 
   @Post('register')
   @Public()

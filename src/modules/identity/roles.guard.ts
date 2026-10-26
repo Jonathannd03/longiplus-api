@@ -1,4 +1,4 @@
-import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
+import { CanActivate, ExecutionContext, ForbiddenException, Injectable, Inject } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { FastifyRequest } from 'fastify';
 import { ROLES_KEY } from './auth.decorator.js';
@@ -6,7 +6,7 @@ import type { StaffRole } from './authenticated-user.interface.js';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector) {}
+  constructor(@Inject(Reflector) private readonly reflector: Reflector) {}
 
   canActivate(ctx: ExecutionContext): true {
     const required = this.reflector.getAllAndOverride<StaffRole[] | undefined>(ROLES_KEY, [

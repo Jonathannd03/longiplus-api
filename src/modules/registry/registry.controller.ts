@@ -85,13 +85,13 @@ interface SendAnnouncementDto {
 export class RegistryController {
   constructor(
     @Inject(SMS_SENDER) private readonly sms: SmsSender,
-    private readonly studentService: StudentService,
-    private readonly guardianService: GuardianService,
-    private readonly enrollmentService: EnrollmentService,
-    private readonly importService: ImportService,
-    private readonly attendanceService: AttendanceService,
-    private readonly announcementService: AnnouncementService,
-    private readonly auditService: AuditService,
+    @Inject(StudentService) private readonly studentService: StudentService,
+    @Inject(GuardianService) private readonly guardianService: GuardianService,
+    @Inject(EnrollmentService) private readonly enrollmentService: EnrollmentService,
+    @Inject(ImportService) private readonly importService: ImportService,
+    @Inject(AttendanceService) private readonly attendanceService: AttendanceService,
+    @Inject(AnnouncementService) private readonly announcementService: AnnouncementService,
+    @Inject(AuditService) private readonly auditService: AuditService,
   ) {}
 
   @Post('students')

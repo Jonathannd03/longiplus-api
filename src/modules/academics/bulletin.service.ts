@@ -27,7 +27,7 @@ export class BulletinService {
 
   constructor(
     @Inject(SMS_SENDER) private readonly sms: SmsSender,
-    private readonly markService: MarkService,
+    @Inject(MarkService) private readonly markService: MarkService,
   ) {
     this.gotenbergUrl = process.env['GOTENBERG_URL'] ?? 'http://localhost:3002';
   }

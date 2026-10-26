@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Res, UseGuards, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Inject, Query, Res, UseGuards, BadRequestException } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { RolesGuard } from '../identity/roles.guard.js';
 import { Roles, CurrentUser } from '../identity/auth.decorator.js';
@@ -8,7 +8,7 @@ import { ReportingService } from './reporting.service.js';
 @Controller()
 @UseGuards(RolesGuard)
 export class ReportingController {
-  constructor(private readonly reporting: ReportingService) {}
+  constructor(@Inject(ReportingService) private readonly reporting: ReportingService) {}
 
   @Get('dashboard')
   async dashboard(

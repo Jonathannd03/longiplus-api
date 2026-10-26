@@ -2,13 +2,12 @@ import {
   CanActivate,
   ExecutionContext,
   Injectable,
-  OnModuleInit,
   UnauthorizedException,
   ForbiddenException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { FastifyRequest } from 'fastify';
-import * as jwt from 'jsonwebtoken';
+import jwt from 'jsonwebtoken';
 import jwksRsa from 'jwks-rsa';
 import { IS_PUBLIC_KEY } from './auth.decorator.js';
 import type { AuthenticatedUser, StaffRole } from './authenticated-user.interface.js';
@@ -23,20 +22,18 @@ interface KcJwtPayload {
 }
 
 const STAFF_ROLES = new Set<string>([
-  'owner', 'director', 'bursar', 'secretary', 'teacher', 'class_teacher', 'kelasi_admin',
+  'owner', 'director', 'bursar', 'secretary', 'teacher', 'class_teacher', 'longiplus_admin',
 ]);
 
 @Injectable()
-export class JwtAuthGuard implements CanActivate, OnModuleInit {
-  private jwksClient!: jwksRsa.JwksClient;
-  private issuer!: string;
+export class JwtAuthGuard implements CanActivate {
+  private readonly jwksClient: jwksRsa.JwksClient;
+  private readonly issuer: string;
 
   constructor(
     private readonly reflector: Reflector,
     private readonly membershipService: MembershipService,
-  ) {}
-
-  onModuleInit() {
+  ) {
     const jwksUri =
       process.env['KEYCLOAK_JWKS_URL'] ??
       'http://localhost:8080/realms/longiplus/protocol/openid-connect/certs';
@@ -48,7 +45,7 @@ export class JwtAuthGuard implements CanActivate, OnModuleInit {
       jwksUri,
       cache: true,
       cacheMaxEntries: 10,
-      cacheMaxAge: 600_000, // 10 min
+      cacheMaxAge: 600_000,
     });
   }
 
@@ -66,21 +63,28 @@ export class JwtAuthGuard implements CanActivate, OnModuleInit {
     const payload = await this.verifyToken(token);
 
     const schoolId = (request.headers['x-school-id'] as string | undefined)?.trim();
-    if (!schoolId) throw new ForbiddenException('Missing X-School-Id header');
 
-    const membership = await this.membershipService.findByUserAndSchool(
-      payload.sub,
-      schoolId,
-    );
-    if (!membership) {
-      throw new ForbiddenException('No active membership for this school');
+    let resolvedRole: string;
+    let resolvedSchoolId: string;
+
+    if (schoolId) {
+      const membership = await this.membershipService.findByUserAndSchool(payload.sub, schoolId);
+      if (!membership) throw new ForbiddenException('No active membership for this school');
+      resolvedRole = membership.role;
+      resolvedSchoolId = schoolId;
+    } else {
+      // First login — no school selected yet; pick the user's first active school
+      const schools = await this.membershipService.findAllSchoolsForUser(payload.sub);
+      if (schools.length === 0) throw new ForbiddenException('No active membership');
+      resolvedRole = schools[0]!.role;
+      resolvedSchoolId = schools[0]!.schoolId;
     }
 
     const user: AuthenticatedUser = {
       keycloakUserId: payload.sub,
       email: payload.email,
-      role: membership.role as StaffRole,
-      schoolId,
+      role: resolvedRole as StaffRole,
+      schoolId: resolvedSchoolId,
     };
     request.user = user;
     return true;
