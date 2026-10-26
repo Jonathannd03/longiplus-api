@@ -11,6 +11,8 @@ import {
   Inject,
   BadRequestException,
 } from '@nestjs/common';
+import { IsString, IsOptional, Matches, IsIn, Length, IsBoolean } from 'class-validator';
+import { Throttle } from '@nestjs/throttler';
 import { RolesGuard } from '../identity/roles.guard.js';
 import { Roles, CurrentUser, Public } from '../identity/auth.decorator.js';
 import { SchoolService } from './school.service.js';
@@ -45,14 +47,14 @@ interface InviteMemberDto {
   keycloakUserId?: string;
 }
 
-interface PhoneInviteDto {
-  phone: string;
-  role: 'teacher' | 'class_teacher' | 'secretary';
+export class PhoneInviteDto {
+  @Matches(/^\+\d{8,15}$/) phone!: string;
+  @IsIn(['teacher', 'class_teacher', 'secretary']) role!: 'teacher' | 'class_teacher' | 'secretary';
 }
 
-interface VerifyInviteDto {
-  phone: string;
-  code: string;
+export class VerifyInviteDto {
+  @Matches(/^\+\d{8,15}$/) phone!: string;
+  @Length(6, 6) @Matches(/^\d{6}$/) code!: string;
 }
 
 @Controller()
@@ -195,9 +197,8 @@ export class TenancyController {
   @Post('memberships/verify-invite')
   @Public()
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   async verifyInvite(@Body() dto: VerifyInviteDto) {
-    if (!dto.phone?.trim()) throw new BadRequestException('phone required');
-    if (!dto.code?.trim()) throw new BadRequestException('code required');
     return this.membershipService.verifyInvite(dto.phone.trim(), dto.code.trim());
   }
 }

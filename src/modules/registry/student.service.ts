@@ -98,7 +98,8 @@ export class StudentService {
           ilike(student.studentCode, `%${opts.q}%`),
         ) : undefined,
         opts.classSectionId ? eq(enrollment.classSectionId, opts.classSectionId) : undefined,
-      ));
+      ))
+      .limit(500);
     return rows;
   }
 

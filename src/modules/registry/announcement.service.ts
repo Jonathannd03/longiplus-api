@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and, inArray } from 'drizzle-orm';
 import { dbOwner } from '../../db/client.js';
 import type { TxDB } from '../../db/client.js';
 import { announcement, guardian, studentGuardian, enrollment, classSection } from '../../db/schema.js';
@@ -78,7 +78,10 @@ export class AnnouncementService {
       .from(studentGuardian)
       .innerJoin(guardian, eq(guardian.id, studentGuardian.guardianId))
       .where(
-        eq(guardian.schoolId, schoolId),
+        and(
+          eq(guardian.schoolId, schoolId),
+          inArray(studentGuardian.studentId, studentIds),
+        ),
       );
 
     return guardianRows.map((r) => r.phone);
