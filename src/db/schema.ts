@@ -24,7 +24,7 @@ export const roleEnum = pgEnum('role', [
   'secretary',
   'teacher',
   'class_teacher',
-  'kelasi_admin',
+  'longiplus_admin',
 ]);
 
 export const membershipStatusEnum = pgEnum('membership_status', [
