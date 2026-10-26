@@ -8,15 +8,18 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  Inject,
+  BadRequestException,
 } from '@nestjs/common';
 import { RolesGuard } from '../identity/roles.guard.js';
-import { Roles, CurrentUser } from '../identity/auth.decorator.js';
+import { Roles, CurrentUser, Public } from '../identity/auth.decorator.js';
 import { SchoolService } from './school.service.js';
 import { PayoutAccountService } from './payout-account.service.js';
 import { MembershipService } from './membership.service.js';
 import { AuditService } from '../identity/audit.service.js';
 import { OutboxService } from '../outbox/outbox.service.js';
 import { withSchoolContext } from '../../db/client.js';
+import { SMS_SENDER, type SmsSender } from '../notifications/sms-sender.interface.js';
 import type { AuthenticatedUser } from '../identity/authenticated-user.interface.js';
 
 interface UpdateSchoolDto {
@@ -42,10 +45,21 @@ interface InviteMemberDto {
   keycloakUserId?: string;
 }
 
+interface PhoneInviteDto {
+  phone: string;
+  role: 'teacher' | 'class_teacher' | 'secretary';
+}
+
+interface VerifyInviteDto {
+  phone: string;
+  code: string;
+}
+
 @Controller()
 @UseGuards(RolesGuard)
 export class TenancyController {
   constructor(
+    @Inject(SMS_SENDER) private readonly sms: SmsSender,
     private readonly schoolService: SchoolService,
     private readonly payoutAccountService: PayoutAccountService,
     private readonly membershipService: MembershipService,
@@ -158,5 +172,32 @@ export class TenancyController {
   @Roles('owner', 'director')
   async listMembers(@CurrentUser() user: AuthenticatedUser) {
     return this.membershipService.findBySchool(user.schoolId);
+  }
+
+  /** FR-11: invite a teacher by phone number */
+  @Post('memberships/phone-invite')
+  @Roles('owner', 'director')
+  @HttpCode(HttpStatus.CREATED)
+  async phoneInvite(@CurrentUser() user: AuthenticatedUser, @Body() dto: PhoneInviteDto) {
+    if (!dto.phone?.trim()) throw new BadRequestException('phone required');
+    if (!dto.role) throw new BadRequestException('role required');
+    const { id, code } = await withSchoolContext(user.schoolId, (tx) =>
+      this.membershipService.phoneInvite(tx, user.schoolId, dto),
+    );
+    const msg = `LongiPlus : Vous êtes invité(e) à rejoindre l'équipe de l'école. Code d'activation : ${code}. Valable 48h.`;
+    await this.sms.send(dto.phone.trim(), msg).catch((err: unknown) =>
+      console.error('FR-11 phone invite SMS error', err),
+    );
+    return { id };
+  }
+
+  /** FR-17: teacher activates their account with the SMS code */
+  @Post('memberships/verify-invite')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  async verifyInvite(@Body() dto: VerifyInviteDto) {
+    if (!dto.phone?.trim()) throw new BadRequestException('phone required');
+    if (!dto.code?.trim()) throw new BadRequestException('code required');
+    return this.membershipService.verifyInvite(dto.phone.trim(), dto.code.trim());
   }
 }
